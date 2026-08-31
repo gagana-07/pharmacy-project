@@ -67,7 +67,10 @@ def add_medicine(medicine: Medicine):
 
     medicines_collection.insert_one({
         "name": medicine.name,
-        "price": medicine.price
+        "quantity": medicine.quantity,
+        "price": medicine.price,
+        "expiry_date": medicine.expiry_date,
+        "manufacturer": medicine.manufacturer
     })
 
     return {"message": "Medicine added successfully"}
@@ -95,3 +98,68 @@ def search_medicine(medicine_name: str):
         return medicine
 
     return {"message": "Medicine not found"}
+
+
+@app.put("/update-stock/{medicine_name}")
+def update_stock(medicine_name: str, quantity: int):
+
+    result = medicines_collection.update_one(
+        {"name": medicine_name},
+        {
+            "$set": {
+                "quantity": quantity
+            }
+        }
+    )
+
+    if result.modified_count > 0:
+        return {"message": "Stock updated successfully"}
+
+    return {"message": "Medicine not found"}
+
+
+@app.get("/low-stock")
+def low_stock():
+
+    medicines = list(
+        medicines_collection.find(
+            {"quantity": {"$lt": 10}},
+            {"_id": 0}
+        )
+    )
+
+    return medicines
+
+
+@app.delete("/delete-medicine/{medicine_name}")
+def delete_medicine(medicine_name: str):
+
+    result = medicines_collection.delete_one(
+        {"name": medicine_name}
+    )
+
+    if result.deleted_count > 0:
+        return {"message": "Medicine deleted successfully"}
+
+    return {"message": "Medicine not found"}
+
+
+@app.get("/expired-medicines")
+def expired_medicines():
+
+    medicines = list(
+        medicines_collection.find(
+            {},
+            {"_id": 0}
+        )
+    )
+
+    expired = []
+
+    for medicine in medicines:
+        expiry = medicine.get("expiry_date")
+
+        if expiry and expiry < "2026-12-31":
+            expired.append(medicine)
+
+    return expired
