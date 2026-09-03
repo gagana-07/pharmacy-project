@@ -1,9 +1,24 @@
 from fastapi import FastAPI
+from datetime import date, datetime
+from fastapi.middleware.cors import CORSMiddleware
+
 from models import Pharmacy, User, Medicine
-from database import pharmacies_collection, medicines_collection
 from auth import register_user, login_user
 
+from database import (
+    pharmacies_collection,
+    medicines_collection,
+    bills_collection
+)
+
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/")
@@ -66,7 +81,7 @@ def login(user: User):
 def add_medicine(medicine: Medicine):
 
     medicines_collection.insert_one({
-        "name": medicine.name,
+        "name": medicine.name.lower(),
         "quantity": medicine.quantity,
         "price": medicine.price,
         "expiry_date": medicine.expiry_date,
@@ -90,7 +105,12 @@ def get_all_medicines():
 def search_medicine(medicine_name: str):
 
     medicine = medicines_collection.find_one(
-        {"name": medicine_name},
+        {
+            "name": {
+                "$regex": f"^{medicine_name}$",
+                "$options": "i"
+            }
+        },
         {"_id": 0}
     )
 
@@ -104,7 +124,12 @@ def search_medicine(medicine_name: str):
 def update_stock(medicine_name: str, quantity: int):
 
     result = medicines_collection.update_one(
-        {"name": medicine_name},
+        {
+            "name": {
+                "$regex": f"^{medicine_name}$",
+                "$options": "i"
+            }
+        },
         {
             "$set": {
                 "quantity": quantity
@@ -135,7 +160,12 @@ def low_stock():
 def delete_medicine(medicine_name: str):
 
     result = medicines_collection.delete_one(
-        {"name": medicine_name}
+        {
+            "name": {
+                "$regex": f"^{medicine_name}$",
+                "$options": "i"
+            }
+        }
     )
 
     if result.deleted_count > 0:
@@ -154,12 +184,83 @@ def expired_medicines():
         )
     )
 
+    today = str(date.today())
+
     expired = []
 
     for medicine in medicines:
-        expiry = medicine.get("expiry_date")
 
-        if expiry and expiry < "2026-12-31":
+        if (
+            "expiry_date" in medicine and
+            medicine["expiry_date"] < today
+        ):
             expired.append(medicine)
 
     return expired
+
+
+# -------------------------
+# BILLING APIs
+# -------------------------
+
+@app.post("/generate-bill")
+def generate_bill(
+    customer_name: str,
+    medicine_name: str,
+    quantity: int
+):
+
+    medicine = medicines_collection.find_one(
+        {
+            "name": {
+                "$regex": f"^{medicine_name}$",
+                "$options": "i"
+            }
+        }
+    )
+
+    if not medicine:
+        return {"message": "Medicine not found"}
+
+    if medicine["quantity"] < quantity:
+        return {"message": "Insufficient stock"}
+
+    total_amount = medicine["price"] * quantity
+
+    medicines_collection.update_one(
+        {"_id": medicine["_id"]},
+        {
+            "$set": {
+                "quantity": medicine["quantity"] - quantity
+            }
+        }
+    )
+
+    bill = {
+        "customer_name": customer_name,
+        "medicine_name": medicine["name"],
+        "quantity": quantity,
+        "price_per_unit": medicine["price"],
+        "total_amount": total_amount,
+        "bill_date": str(datetime.now())
+    }
+
+    bills_collection.insert_one(bill)
+
+    return {
+        "message": "Bill generated successfully",
+        "bill": bill
+    }
+
+
+@app.get("/all-bills")
+def get_all_bills():
+
+    bills = list(
+        bills_collection.find(
+            {},
+            {"_id": 0}
+        )
+    )
+
+    return bills
