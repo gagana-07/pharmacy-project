@@ -2,15 +2,16 @@ from fastapi import FastAPI
 from datetime import date, datetime
 from fastapi.middleware.cors import CORSMiddleware
 
-from models import Pharmacy, User, Medicine
+from models import Pharmacy, User, Medicine, Company
 from auth import register_user, login_user
 
 from database import (
     pharmacies_collection,
     medicines_collection,
-    bills_collection
+    bills_collection,
+    companies_collection,
+    users_collection
 )
-
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
@@ -29,7 +30,17 @@ def home():
 # -------------------------
 # PHARMACY APIs
 # -------------------------
+@app.post("/add-company")
+def add_company(company: Company):
 
+    companies_collection.insert_one({
+        "company_name": company.company_name,
+        "company_code": company.company_code
+    })
+
+    return {
+        "message": "Company added successfully"
+    }
 @app.post("/add-pharmacy")
 def add_pharmacy(pharmacy: Pharmacy):
 
@@ -60,7 +71,8 @@ def register(user: User):
 
     return register_user(
         user.username,
-        user.password
+        user.password,
+        user.company_code
     )
 
 
@@ -72,7 +84,48 @@ def login(user: User):
         user.password
     )
 
+@app.put("/approve-user/{username}")
+def approve_user(username: str):
 
+    result = users_collection.update_one(
+        {"username": username},
+        {
+            "$set": {
+                "status": "approved"
+            }
+        }
+    )
+
+    if result.modified_count > 0:
+        return {
+            "message": "User approved successfully"
+        }
+
+    return {
+        "message": "User not found"
+    }
+
+
+@app.get("/pending-users")
+def pending_users():
+
+    users = list(
+        users_collection.find(
+            {"status": "pending"},
+            {"_id": 0, "password": 0}
+        )
+    )
+
+    return users
+
+    users = list(
+        users_collection.find(
+            {"status": "pending"},
+            {"_id": 0, "password": 0}
+        )
+    )
+
+    return users
 # -------------------------
 # MEDICINE APIs
 # -------------------------
